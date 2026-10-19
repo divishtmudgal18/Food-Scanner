@@ -1,0 +1,25 @@
+# Flutter / Dart
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/coverage/
+
+# Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# AWS
+.aws-sam/
+samconfig.toml
+
+# IDE & OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db

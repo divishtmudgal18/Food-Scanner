@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  FoodScanner Cloud Architecture - AWS Serverless Backend for Cloud Computing Course Project.
+  Provides Cognito Authentication, DynamoDB NoSQL Persistence, API Gateway HTTP API,
+  and Lambda Compute with CloudWatch Monitoring.
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 256
+    Runtime: python3.11
+    Tracing: Active
+    Environment:
+      Variables:
+        PROFILES_TABLE: !Ref ProfilesTable
+        SCANS_TABLE: !Ref ScansTable
+
+Resources:
+  # ========================================================
+  # 1. AUTHENTICATION: Amazon Cognito
+  # ========================================================
+  FoodScannerUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: FoodScannerUserPool
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireUppercase: false
+          RequireSymbols: false
+
+  FoodScannerUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: FoodScannerMobileAppClient
+      UserPoolId: !Ref FoodScannerUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+
+  # ========================================================
+  # 2. DATABASE: Amazon DynamoDB
+  # ========================================================
+  ProfilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: FoodScannerProfiles
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
+  ScansTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: FoodScannerHistory
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: scanId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: scanId
+          KeyType: RANGE
+
+  # ========================================================
+  # 3. API GATEWAY: Amazon API Gateway HTTP API
+  # ========================================================
+  FoodScannerHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        AllowOrigins:
+          - '*'
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${FoodScannerUserPool}"
+              audience:
+                - !Ref FoodScannerUserPoolClient
+
+  # ========================================================
+  # 4. SERVERLESS COMPUTE: AWS Lambda
+  # ========================================================
+  FoodScannerBackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: handlers/
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProfilesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScansTable
+      Events:
+        # Profile Routes
+        GetProfile:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref FoodScannerHttpApi
+            Path: /profile
+            Method: GET
+        UpdateProfile:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref FoodScannerHttpApi
+            Path: /profile
+            Method: PUT
+        # Assessment Engine Route
+        AssessProduct:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref FoodScannerHttpApi
+            Path: /assess
+            Method: POST
+        # History Routes
+        GetScans:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref FoodScannerHttpApi
+            Path: /scans
+            Method: GET
+        SaveScan:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref FoodScannerHttpApi
+            Path: /scans
+            Method: POST
+        DeleteScan:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref FoodScannerHttpApi
+            Path: /scans/{scanId}
+            Method: DELETE
+
+Outputs:
+  ApiEndpoint:
+    Description: "HTTP API Gateway endpoint URL"
+    Value: !Sub "https://${FoodScannerHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  UserPoolId:
+    Description: "Cognito User Pool ID"
+    Value: !Ref FoodScannerUserPool
+  UserPoolClientId:
+    Description: "Cognito App Client ID"
+    Value: !Ref FoodScannerUserPoolClient
